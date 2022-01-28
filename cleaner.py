@@ -1,5 +1,6 @@
 from time import sleep
 from os import getenv
+from datetime import datetime, timedelta
 
 from pyrogram import Client
 from pyrogram.raw.functions.messages import Search
@@ -18,6 +19,7 @@ app.start()
 class Cleaner:
     def __init__(self, chats=None, search_chunk_size=100, delete_chunk_size=100):
         self.chats = chats or []
+        self.time = None
         if search_chunk_size > 100:
             # https://github.com/gurland/telegram-delete-all-messages/issues/31
             #
@@ -81,6 +83,20 @@ class Cleaner:
         groups_str = ', '.join(c.title for c in self.chats)
         print(f'\nSelected {groups_str}.\n')
 
+    def select_time(self):
+        now = datetime.now()
+        current_time = now.strftime("%m/%d/%Y, %H:%M:%S")
+        print("Current system date and time is:", current_time)
+        #cutoff is hardcoded to 30 days earlier than current system time
+        cutoff_time = now - timedelta(days=30)
+        cutoff_time_display = cutoff_time.strftime("%m/%d/%Y, %H:%M:%S")
+        print("Message deletion cutoff time is set to be 30 days before the current system time, which is:", cutoff_time_display)
+        answer = input('\nIf this cutoff time is correct, please type "Y" to proceed: ')
+        if answer.upper() != 'Y':
+            print('Better safe than sorry. Aborting...')
+            exit(-1)
+        self.time = int(datetime.timestamp(cutoff_time))
+
     def run(self):
         for chat in self.chats:
             peer = app.resolve_peer(chat.id)
@@ -88,10 +104,10 @@ class Cleaner:
             add_offset = 0
 
             while True:
-                q = self.search_messages(peer, add_offset)
+                q = self.search_messages(peer, add_offset, self.time)
                 message_ids.extend(msg.id for msg in q['messages'])
                 messages_count = len(q['messages'])
-                print(f'Found {messages_count} of your messages in "{chat.title}"')
+                print(f'Found {messages_count} of messages in "{chat.title}" older than the selected time.')
                 if messages_count < self.search_chunk_size:
                     break
                 add_offset += self.search_chunk_size
@@ -99,6 +115,11 @@ class Cleaner:
             self.delete_messages(chat.id, message_ids)
 
     def delete_messages(self, chat_id, message_ids):
+        print('\nThis will irreversibly delete ALL messages older than the cutoff time in the selected group(s).')
+        answer = input('Please type "Y" to proceed: ')
+        if answer.upper() != 'Y':
+            print('Better safe than sorry. Aborting...')
+            exit(-1)
         print(f'Deleting {len(message_ids)} messages with message IDs:')
         print(message_ids)
         for chunk in self.chunks(message_ids, self.delete_chunk_size):
@@ -107,7 +128,7 @@ class Cleaner:
             except FloodWait as flood_exception:
                 sleep(flood_exception.x)
 
-    def search_messages(self, peer, add_offset):
+    def search_messages(self, peer, add_offset, cutoff_date):
         print(f'Searching messages. OFFSET: {add_offset}')
         return app.send(
             Search(
@@ -115,14 +136,14 @@ class Cleaner:
                 q='',
                 filter=InputMessagesFilterEmpty(),
                 min_date=0,
-                max_date=0,
+                max_date=cutoff_date,
                 offset_id=0,
                 add_offset=add_offset,
                 limit=self.search_chunk_size,
                 max_id=0,
                 min_id=0,
-                hash=0,
-                from_id=InputPeerSelf()
+                hash=0
+                #from_id=InputPeerSelf()
             ),
             sleep_threshold=60
         )
@@ -132,6 +153,7 @@ if __name__ == '__main__':
     try:
         deleter = Cleaner()
         deleter.select_groups()
+        deleter.select_time()
         deleter.run()
     except UnknownError as e:
         print(f'UnknownError occured: {e}')
