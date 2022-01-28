@@ -1,5 +1,5 @@
 # telegram-delete-all-messages
-Delete all your messages in supergroups with python script.
+Delete all messages in supergroups older than the cutoff time via Pyrogram and Telegram Core APIs.
 
 ## Installation
 To install this script you have to download project and install requirements:
